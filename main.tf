@@ -46,35 +46,6 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-
-# resource "aws_iam_policy" "custom_policy" {
-#   name        = "MyCustomPolicy"
-#   description = "My custom IAM policy"
-
-#   # Define your policy document here
-#   policy = jsonencode({
-#     Version = "2012-10-17",
-#     Statement = [
-#       {
-#         Effect = "Allow",
-#         Action = [
-#           "ec2:DescribeInstances",
-#           "ec2:StartInstances",
-#           "ec2:StopInstances",
-#           "ec2:RebootInstances",
-#         ],
-#         Resource = "*",
-#       },
-#     ],
-#   })
-# }
-
-# resource "aws_iam_role_policy_attachment" "custom_policy_attachment" {
-#   role       = aws_iam_role.this.name
-#   policy_arn = aws_iam_policy.custom_policy.arn
-# }
-
-
 //  Create an IAM instance profile and associates it with the previously defined IAM role.
 resource "aws_iam_instance_profile" "this" {
   name = local.tag
@@ -118,10 +89,16 @@ resource "aws_security_group" "allow_http" {
   }
 }
 
+// Ddd ssh keys straight from Terraform
+resource "aws_key_pair" "this" {
+  key_name   = "${local.tag}-instance-ssh-key"
+  public_key = file("~/.ssh/aws_test.pub")	
+}
+
 // This resource creates an EC2 instance (aws_instance.this) using the specified Amazon Machine Image (AMI),
 // instance type, subnet, IAM instance profile, security group, and other configurations.
 resource "aws_instance" "this" {
-  key_name                    = "anton-pegov"
+  key_name                    = "${local.tag}-instance-ssh-key"
   ami                         = "ami-007217baf201fea8a"
   instance_type               = "t3.micro"
   subnet_id                   = "subnet-070631c536dac3160"
@@ -130,7 +107,7 @@ resource "aws_instance" "this" {
   associate_public_ip_address = true
 
   tags = {
-    "Name" = local.tag
+    "Name" = "${local.tag}-instance"
   }
 
   lifecycle {
