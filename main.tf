@@ -1,4 +1,5 @@
-
+// Say Terraform to store its state in an S3 bucket (luxoft-academy-adm022-tfstate) in the us-east-1 region. 
+// The state file is essential for maintaining the state of your infrastructure.
 terraform {
   backend "s3" {
     bucket = "luxoft-academy-adm022-tfstate"
@@ -7,17 +8,18 @@ terraform {
   }
 }
 
-// Define the provider
+// Define the provider.
 provider "aws" {
   region = "eu-west-1"
 }
 
-// Define the tag
+// Define the constants.
 locals {
   tag = "anton-pegov"
 }
 
-// Define the IAM role for EC2
+// Define the IAM role for EC2.
+// This role is assumed by EC2 instances and allows them to communicate with AWS Systems Manager (SSM).
 resource "aws_iam_role" "this" {
   name               = "${local.tag}-instance"
   assume_role_policy = <<EOF
@@ -37,19 +39,51 @@ resource "aws_iam_role" "this" {
 EOF
 }
 
-// Attach the policy to the role
+// Attach the "AmazonSSMManagedInstanceCore" policy to the created role.
+// This role is assumed by EC2 instances and allows them to communicate with AWS Systems Manager (SSM).
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.this.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-// Create the IAM instance profile
+
+# resource "aws_iam_policy" "custom_policy" {
+#   name        = "MyCustomPolicy"
+#   description = "My custom IAM policy"
+
+#   # Define your policy document here
+#   policy = jsonencode({
+#     Version = "2012-10-17",
+#     Statement = [
+#       {
+#         Effect = "Allow",
+#         Action = [
+#           "ec2:DescribeInstances",
+#           "ec2:StartInstances",
+#           "ec2:StopInstances",
+#           "ec2:RebootInstances",
+#         ],
+#         Resource = "*",
+#       },
+#     ],
+#   })
+# }
+
+# resource "aws_iam_role_policy_attachment" "custom_policy_attachment" {
+#   role       = aws_iam_role.this.name
+#   policy_arn = aws_iam_policy.custom_policy.arn
+# }
+
+
+//  Create an IAM instance profile and associates it with the previously defined IAM role.
 resource "aws_iam_instance_profile" "this" {
   name = local.tag
   role = aws_iam_role.this.name
 }
 
-// Create the security group for the EC2 instance to controll http access
+// Create the security group for the EC2 instance to controll http traffic.
+// Allow incoming traffic on port 8000 and allows all outbound traffic.
+// Allow incoming SSH traffic from any IP address (0.0.0.0/0)
 resource "aws_security_group" "allow_http" {
   name        = "public_http_${local.tag}"
   description = "Allow HTTP public"
@@ -63,6 +97,13 @@ resource "aws_security_group" "allow_http" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     from_port        = 0
@@ -77,8 +118,10 @@ resource "aws_security_group" "allow_http" {
   }
 }
 
-// Create the EC2 instance
+// This resource creates an EC2 instance (aws_instance.this) using the specified Amazon Machine Image (AMI),
+// instance type, subnet, IAM instance profile, security group, and other configurations.
 resource "aws_instance" "this" {
+  key_name                    = "anton-pegov"
   ami                         = "ami-007217baf201fea8a"
   instance_type               = "t3.micro"
   subnet_id                   = "subnet-070631c536dac3160"
@@ -90,4 +133,7 @@ resource "aws_instance" "this" {
     "Name" = local.tag
   }
 
+  lifecycle {
+    create_before_destroy = true
+  }
 }
