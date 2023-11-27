@@ -13,7 +13,10 @@
 ## Tools
   - Bash
   - AWS CLI
-  - Terraform CLI
+  - Terraform CLI*
+  - Packer CLI*
+
+  * - put executables to `bin` folder and add it to `PATH`
 
 ## Set AWS credentials
 `. setup-aws.sh` - set AWS credentials for current session

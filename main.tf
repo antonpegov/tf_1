@@ -99,7 +99,7 @@ resource "aws_key_pair" "this" {
 // instance type, subnet, IAM instance profile, security group, and other configurations.
 resource "aws_instance" "this" {
   key_name                    = "${local.tag}-instance-ssh-key"
-  ami                         = "ami-007217baf201fea8a"
+  ami                         = "ami-0cd9de031a6a1b509"
   instance_type               = "t3.micro"
   subnet_id                   = "subnet-070631c536dac3160"
   iam_instance_profile        = aws_iam_instance_profile.this.name
@@ -113,4 +113,10 @@ resource "aws_instance" "this" {
   lifecycle {
     create_before_destroy = true
   }
+}
+
+// Create an Elastic IP address and associate it with the EC2 instance.
+resource "aws_eip" "this" {
+  instance = aws_instance.this.id
+  vpc      = true
 }
