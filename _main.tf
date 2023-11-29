@@ -7,6 +7,13 @@ terraform {
     key    = "anton-pegov"
     region = "us-east-1"
   }
+
+  required_providers {
+    postgresql = {
+      source  = "cyrilgdn/postgresql"
+      version = ">=1.12.0"
+    }
+  }
 }
 
 provider "aws" {
@@ -20,10 +27,13 @@ provider "aws" {
 // the configuration to make it more readable and to avoid repeating expressions.
 
 locals {
+  host_name = "${var.tag}.${var.domain}"
   compose = base64encode(templatefile("${path.module}/compose.yaml.tmpl", {
     region        = data.aws_region.current.name
     django_secret = random_id.secret.hex
     password      = random_password.password.result
+    port          = var.port
+    image         = var.image
     }
   ))
 }
@@ -40,6 +50,14 @@ data "aws_ssm_parameter" "ami" {
 
 data "aws_ssm_parameter" "private_subnets" {
   name = "/adm022/private_subnet_ids"
+}
+
+data "aws_ssm_parameter" "vpc_id" {
+  name = "/adm022/vpc_id"
+}
+
+data "aws_ssm_parameter" "listener_arn" {
+  name = "/adm022/listener_arn"
 }
 
 data "aws_region" "current" {}
@@ -77,6 +95,13 @@ EOF
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.this.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+// Attach the "EC2InstanceProfileForImageBuilderECRContainerBuilds" policy to the created role.
+// This policy allows EC2 instances to push and pull images from Amazon Elastic Container Registry (ECR).
+resource "aws_iam_role_policy_attachment" "ecr" {
+  role       = aws_iam_role.this.name
+  policy_arn = "arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds"
 }
 
 //  Create an IAM instance profile and associates it with the previously defined IAM role.
@@ -140,15 +165,13 @@ resource "random_password" "password" {
 // This resource creates an EC2 instance (aws_instance.this) using the specified Amazon Machine Image (AMI),
 // instance type, subnet, IAM instance profile, security group, and other configurations.
 resource "aws_instance" "this" {
-  # ami                         = "ami-0cd9de031a6a1b509"
-  key_name      = "${var.tag}-instance-ssh-key"
-  ami           = data.aws_ssm_parameter.ami.value
-  instance_type = var.instance_type
-  subnet_id     = "subnet-070631c536dac3160"
-  # subnet_id                   = split(",", data.aws_ssm_parameter.private_subnets.value)[0]
-  iam_instance_profile        = aws_iam_instance_profile.this.name
-  vpc_security_group_ids      = [aws_security_group.allow_http.id]
-  associate_public_ip_address = true
+  key_name               = "${var.tag}-instance-ssh-key"
+  ami                    = data.aws_ssm_parameter.ami.value
+  instance_type          = var.instance_type
+  subnet_id              = split(",", data.aws_ssm_parameter.private_subnets.value)[0]
+  iam_instance_profile   = aws_iam_instance_profile.this.name
+  vpc_security_group_ids = [aws_security_group.allow_http.id]
+  # associate_public_ip_address = true
 
   tags = {
     "Name" = var.tag
@@ -166,6 +189,7 @@ resource "aws_instance" "this" {
         encoding: b64
         content: '${local.compose}'
     runcmd:
+      - eval $(aws ecr get-login --no-include-email --region ${data.aws_region.current.name})
       - sudo docker-compose -f /home/ec2-user/docker-compose.yaml up -d
 
   EOF
@@ -175,6 +199,37 @@ resource "aws_instance" "this" {
 resource "aws_eip" "this" {
   instance = aws_instance.this.id
   vpc      = true
+}
+
+// Create a target group for the load balancer.
+resource "aws_lb_target_group" "this" {
+  name     = var.tag
+  port     = var.port
+  protocol = "HTTP"
+  vpc_id   = data.aws_ssm_parameter.vpc_id.value
+}
+
+// Attach the EC2 instance to the target group.
+resource "aws_lb_target_group_attachment" "this" {
+  target_group_arn = aws_lb_target_group.this.arn
+  target_id        = aws_instance.this.id
+  port             = var.port
+}
+
+// Create a load balancer listener rule that forwards requests to the target group.
+resource "aws_lb_listener_rule" "this" {
+  listener_arn = data.aws_ssm_parameter.listener_arn.value
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.this.arn
+  }
+
+  condition {
+    host_header {
+      values = [local.host_name]
+    }
+  }
 }
 
 // --------------------------------- Outputs ---------------------------------

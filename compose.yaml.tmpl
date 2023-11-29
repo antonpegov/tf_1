@@ -1,6 +1,6 @@
 services:
   web:
-    image: dmitriko/uploadhub:latest
+    image: ${image}
     command: >
       sh -c "
       until python manage.py dbcheck; do
@@ -9,11 +9,9 @@ services:
       done &&
       python manage.py migrate &&
       python manage.py runserver 0.0.0.0:8000"
-    volumes:
-      - ./fileportal:/opt/fileportal
     working_dir: /opt/fileportal
     ports:
-      - "8000:8000"
+      - "0.0.0.0:${port}:8000"
     depends_on:
       - db
       - minio

@@ -1,0 +1,100 @@
+resource "aws_security_group" "public" {
+  vpc_id      = module.vpc.vpc_id
+  name        = var.tag
+  description = "Allow http, https from public"
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "TLS from everywhere"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTP from everywhere"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.tag}-public"
+  }
+}
+
+resource "aws_alb" "this" {
+  name               = var.tag
+  internal           = false
+  load_balancer_type = "application"
+  tags = {
+    Name = "adm022"
+  }
+  subnets         = module.vpc.public_subnets
+  security_groups = [aws_security_group.public.id]
+}
+
+resource "aws_alb_listener" "http" {
+  load_balancer_arn = aws_alb.this.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+data "aws_acm_certificate" "cert" {
+  domain      = var.domain
+  statuses    = ["ISSUED"]
+  most_recent = true
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_alb.this.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = data.aws_acm_certificate.cert.arn
+
+  default_action {
+    type = "fixed-response"
+
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "I am alive"
+      status_code  = "200"
+    }
+  }
+}
+
+data "aws_route53_zone" "this" {
+  name = var.domain
+}
+
+resource "aws_ssm_parameter" "listener_arn" {
+  name  = "/${var.tag}/listener_arn"
+  type  = "String"
+  value = aws_lb_listener.https.arn
+}
+
+resource "aws_route53_record" "this" {
+  zone_id = data.aws_route53_zone.this.zone_id
+  name    = "*.${var.domain}"
+  type    = "CNAME"
+  ttl     = "300"
+  records = [aws_alb.this.dns_name]
+}

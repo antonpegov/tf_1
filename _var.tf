@@ -23,3 +23,9 @@ variable "ami" {
 variable "domain" {
   default = "adm022.luxoft.academy"
 }
+
+variable "image" {}
+
+variable "port" {
+  default = 8000
+}
