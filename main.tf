@@ -18,9 +18,6 @@ provider "aws" {
 // within your Terraform configuration. These values are not meant to be
 // inputs from users or external sources; instead, they are computed within
 // the configuration to make it more readable and to avoid repeating expressions.
-locals {
-  tag = "anton-pegov"
-}
 
 locals {
   compose = base64encode(templatefile("${path.module}/compose.yaml.tmpl", {
@@ -29,16 +26,6 @@ locals {
     password      = random_password.password.result
     }
   ))
-}
-
-// --------------------------------- Variables ---------------------------------
-// The variables block is used to declare input variables.
-// These variables act as parameters that can be provided when running Terraform
-// commands or in a terraform.tfvars file. The purpose of input variables is to
-// make your Terraform configuration more flexible and reusable.
-
-variable "instance_type" {
-  default = "t3.micro"
 }
 
 // ----------------------------------- Data -----------------------------------
@@ -67,7 +54,7 @@ data "aws_region" "current" {}
 // Define the IAM role for EC2. This role is assumed by EC2 instances and allow
 // them to communicate with AWS Systems Manager (SSM).
 resource "aws_iam_role" "this" {
-  name               = "${local.tag}-instance"
+  name               = "${var.tag}-instance"
   assume_role_policy = <<EOF
 {
   "Version": "2012-10-17",
@@ -94,7 +81,7 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 
 //  Create an IAM instance profile and associates it with the previously defined IAM role.
 resource "aws_iam_instance_profile" "this" {
-  name = local.tag
+  name = var.tag
   role = aws_iam_role.this.name
 }
 
@@ -102,7 +89,7 @@ resource "aws_iam_instance_profile" "this" {
 // Allow incoming traffic on port 8000 and allows all outbound traffic.
 // Allow incoming SSH traffic from any IP address (0.0.0.0/0)
 resource "aws_security_group" "allow_http" {
-  name        = "public_http_${local.tag}"
+  name        = "public_http_${var.tag}"
   description = "Allow HTTP public"
   vpc_id      = "vpc-01536fff4483278e3"
 
@@ -137,7 +124,7 @@ resource "aws_security_group" "allow_http" {
 
 // Ddd ssh keys straight from Terraform
 resource "aws_key_pair" "this" {
-  key_name   = "${local.tag}-instance-ssh-key"
+  key_name   = "${var.tag}-instance-ssh-key"
   public_key = file("~/.ssh/aws_test.pub")
 }
 
@@ -154,17 +141,17 @@ resource "random_password" "password" {
 // instance type, subnet, IAM instance profile, security group, and other configurations.
 resource "aws_instance" "this" {
   # ami                         = "ami-0cd9de031a6a1b509"
-  key_name                    = "${local.tag}-instance-ssh-key"
-  ami                         = data.aws_ssm_parameter.ami.value
-  instance_type               = var.instance_type
-  subnet_id                   = "subnet-070631c536dac3160"
+  key_name      = "${var.tag}-instance-ssh-key"
+  ami           = data.aws_ssm_parameter.ami.value
+  instance_type = var.instance_type
+  subnet_id     = "subnet-070631c536dac3160"
   # subnet_id                   = split(",", data.aws_ssm_parameter.private_subnets.value)[0]
   iam_instance_profile        = aws_iam_instance_profile.this.name
   vpc_security_group_ids      = [aws_security_group.allow_http.id]
   associate_public_ip_address = true
 
   tags = {
-    "Name" = local.tag
+    "Name" = var.tag
   }
 
   lifecycle {
@@ -173,7 +160,7 @@ resource "aws_instance" "this" {
 
   user_data = <<-EOF
     #cloud-config
-    fqdn: ${local.tag}
+    fqdn: ${var.tag}
     write_files:
       - path: /home/ec2-user/docker-compose.yaml
         encoding: b64
@@ -194,12 +181,12 @@ resource "aws_eip" "this" {
 
 output "public_ip" {
   description = "The public IP address of the EC2 instance"
-  value = aws_eip.this.public_ip
+  value       = aws_eip.this.public_ip
 }
 
 output "instance_id" {
   description = "The ID of the EC2 instance"
-  value = aws_instance.this.id
+  value       = aws_instance.this.id
 }
 
 // Call 'terraform output password' to see the value of this output

@@ -1,4 +1,3 @@
 .terraform*
 terraform*
 setup-aws.sh
-*.pem
